@@ -18,6 +18,7 @@
 */
 
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using dnlib.DotNet;
 using de4dot.blocks;
@@ -41,13 +42,14 @@ namespace de4dot.code.deobfuscators.SmartAssembly {
 		public override string Name => THE_NAME;
 		public override string Type => THE_TYPE;
 
+
 		public override IDeobfuscator CreateDeobfuscator() =>
 			new Deobfuscator(new Deobfuscator.Options {
 				ValidNameRegex = validNameRegex.Get(),
 				RemoveAutomatedErrorReporting = removeAutomatedErrorReporting.Get(),
 				RemoveTamperProtection = removeTamperProtection.Get(),
 				RemoveMemoryManager = removeMemoryManager.Get(),
-			});
+			}) { DefaultDecrypterType = DecrypterType.Delegate };
 
 		protected override IEnumerable<Option> GetOptionsInternal() =>
 			new List<Option>() {
@@ -68,6 +70,7 @@ namespace de4dot.code.deobfuscators.SmartAssembly {
 
 		IList<StringDecrypterInfo> stringDecrypterInfos = new List<StringDecrypterInfo>();
 		IList<StringDecrypter> stringDecrypters = new List<StringDecrypter>();
+		IList<DynamicStringInliner> simpleStringDecrypters = new List<DynamicStringInliner>();
 		ResourceDecrypterInfo resourceDecrypterInfo;
 		ResourceDecrypter resourceDecrypter;
 		AssemblyResolverInfo assemblyResolverInfo;
@@ -100,7 +103,7 @@ namespace de4dot.code.deobfuscators.SmartAssembly {
 		public Deobfuscator(Options options)
 			: base(options) {
 			this.options = options;
-			StringFeatures = StringFeatures.AllowStaticDecryption;
+			StringFeatures = StringFeatures.AllowDynamicDecryption;
 		}
 
 		public override void Initialize(ModuleDefMD module) => base.Initialize(module);
@@ -308,7 +311,28 @@ namespace de4dot.code.deobfuscators.SmartAssembly {
 			if (!DecryptResources())
 				throw new ApplicationException("Could not decrypt resources");
 
+			var bt = FindBigType();
+			var candidateMthods = bt.Methods.Where(m => DotNetUtils.IsMethod(m, "System.String", "(System.Int32)"));
+			//foreach (var cm in candidateMthods) {
+			//	staticStringInliner.Add(cm, (method, gim, args) => {
+			//
+			//		var instrs = method.Body.Instructions;
+			//		return args[0].ToString();
+			//	});
+			//}
 			DumpEmbeddedAssemblies();
+		}
+
+		public override IEnumerable<int> GetStringDecrypterMethods() {
+			var list = new List<int>();
+			var bt = FindBigType();
+			var candidateMthods = bt.Methods.Where(m => DotNetUtils.IsMethod(m, "System.String", "(System.Int32)"));
+			foreach (var cm in candidateMthods) {
+				list.Add(cm.MDToken.ToInt32());
+			}
+			foreach (var method in staticStringInliner.Methods)
+				list.Add(method.MDToken.ToInt32());
+			return list;
 		}
 
 		void DumpEmbeddedAssemblies() {
@@ -417,7 +441,7 @@ namespace de4dot.code.deobfuscators.SmartAssembly {
 		}
 
 		public override void DeobfuscateEnd() {
-			canRemoveTypes = false;// FindBigType() == null;
+			canRemoveTypes = FindBigType() == null;
 			RemoveProxyDelegates(proxyCallFixer, canRemoveTypes);
 			RemoveMemoryManagerStuff();
 			RemoveTamperProtectionStuff();
@@ -515,13 +539,6 @@ namespace de4dot.code.deobfuscators.SmartAssembly {
 				foreach (var decrypter in stringDecrypters)
 					decrypter.StringDecrypterInfo.RemoveInitCode(blocks);
 			}
-		}
-
-		public override IEnumerable<int> GetStringDecrypterMethods() {
-			var list = new List<int>();
-			foreach (var method in staticStringInliner.Methods)
-				list.Add(method.MDToken.ToInt32());
-			return list;
 		}
 	}
 }

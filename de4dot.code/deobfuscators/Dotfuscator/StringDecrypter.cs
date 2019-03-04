@@ -67,6 +67,10 @@ namespace de4dot.code.deobfuscators.Dotfuscator {
 
 				simpleDeobfuscator.Deobfuscate(method);
 				var instrs = method.Body.Instructions;
+				var arr1 = instrs[0];
+				var arr2 = instrs[4];
+				//var p = arr1.get
+				
 				for (int i = 0; i < instrs.Count - 6; i++) {
 					var ldarg = instrs[i];
 					if (!ldarg.IsLdarg() || ldarg.GetParameterIndex() != 0)
